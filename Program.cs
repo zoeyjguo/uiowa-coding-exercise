@@ -1,4 +1,7 @@
-﻿namespace ConsoleApp
+﻿using System.IO.Abstractions;
+using System.Text;
+
+namespace ConsoleApp
 {
     /// <summary>
     /// The entry point for the LetterServices program.
@@ -7,33 +10,18 @@
     {
         static void Main(string[] args)
         {
-            /*
-             * Below are fields that can be edited
-             */
-            string currentDirectory = Directory.GetCurrentDirectory();
-            string projDirectory = Directory.GetParent(currentDirectory).Parent.Parent.FullName;
-
-            // If project directory cannot be found, return error
-            if (string.IsNullOrEmpty(projDirectory))
-            {
-                throw new ArgumentNullException("Project directory is empty or null");
-            }
-
-            string dirInput = Path.Join(projDirectory, "CombinedLetters", "Input"); // dir to move files from
-            string dirArchive = Path.Join(projDirectory, "CombinedLetters", "Archive"); // dir to move files to
-            string dirOutput = Path.Join(projDirectory, "CombinedLetters", "Output");
             string date = "20220125"; // date of files to be combined
 
-            LetterService ls = new();
+            LetterService ls = new(date);
 
-            // Archive & get the files from the admissions/scholarship files processed on the given date
-            Dictionary<string, string[]> filesFromDate = ls.ArchiveAndGetFiles(dirInput, dirArchive, date);
+            // Archive & store files from the admissions/scholarship files processed on the given date
+            ls.ArchiveAndGetFiles();
 
             // Combine letters of the same student 
-            ls.CombineStudentLetters(filesFromDate, dirOutput, date);
+            ls.CombineStudentLetters();
 
             // Generate the text report of all the files combined 
-            ls.GenerateTextReport(dirOutput, date);
+            ls.GenerateTextReport();
         }
     }
 
@@ -45,13 +33,9 @@
     public interface ILetterService
     {
         /// <summary>
-        /// Moves all the files to another directory and returns a dictionary of the files from the given date
+        /// Moves all the files to another directory and creates a dictionary of the files from the given date.
         /// </summary>
-        /// <param name="dirFrom">Directory containing the files to be moved. </param>
-        /// <param name="dirTo">Directory the files are being moved to. </param>
-        /// <param name="date">The date of the files we are looking for. </param>
-        /// <returns>A dictionary separating the admission and scholarship files processed on the given date. </returns>
-        public Dictionary<string, string[]> ArchiveAndGetFiles(string dirFrom, string dirTo, string date);
+        public void ArchiveAndGetFiles();
 
         /// <summary>
         /// Moves files from one directory to another. Used as a helper in ArchiveAndGetFiles.
@@ -61,12 +45,9 @@
         public void MoveFilesFromDir(string dirFrom, string dirTo);
 
         /// <summary>
-        /// Combines the admission and scholarship files. 
+        /// Combines the admission and scholarship files if they are from the same student. 
         /// </summary>
-        /// <param name="files">A dictionary of the admission and scholarship files to combine. </param>
-        /// <param name="outputDir">The directory the combined files are being outputted to. </param>
-        /// <param name="date">The date the files were processed. </param>
-        public void CombineStudentLetters(Dictionary<string, string[]> files, string outputDir, string date);
+        public void CombineStudentLetters();
 
         /// <summary>
         /// Combine two letter files into one file. Used as a helper in CombineTwoLetters.
@@ -79,40 +60,78 @@
         /// <summary>
         /// Generates a text report for the letters combined. 
         /// </summary>
-        /// <param name="dirToReport">The directory containing the combined files. </param>
-        /// <param name="date">The date the combined files were processed. </param>
-        void GenerateTextReport(string dirToReport, string date);
+        void GenerateTextReport();
+
+        /// <summary>
+        ///  Returns the files from date. Used for testing.
+        /// </summary>
+        /// <returns>The dictionary containing only files processed on the specified date. </returns>
+        Dictionary<string, string[]> GetFilesFromDate();
     }
 
     public class LetterService : ILetterService
     {
+        private readonly IFileSystem fileSystem;
+        private readonly string date;
+
+        private string currentDirectory;
+        private string projectDir;
+        private string combinedLettersDir;
+        private string dirInput;
+        private string dirOutput;
+        private string dirArchive;
+        private Dictionary<string, string[]> filesFromDate = new Dictionary<string, string[]>();
+
+        public LetterService(string date, IFileSystem fileSystem)
+        {
+            this.fileSystem = fileSystem;
+            this.date = date;
+            currentDirectory = fileSystem.Directory.GetCurrentDirectory();
+
+            if (currentDirectory != "C:\\")
+            {
+                // this is an easy way to get the directory, but not robust
+                projectDir = fileSystem.Directory.GetParent(currentDirectory).Parent.Parent.FullName;
+            }
+            else
+            {
+                projectDir = currentDirectory;
+            }
+
+            combinedLettersDir = fileSystem.Path.Join(projectDir, "CombinedLetters");
+            dirInput = fileSystem.Path.Join(combinedLettersDir, "Input");
+            dirArchive = fileSystem.Path.Join(combinedLettersDir, "Archive");
+            dirOutput = fileSystem.Path.Join(combinedLettersDir, "Output");
+        }
+
+        public LetterService(string date) : this(date, new FileSystem())
+        {
+
+        }
+
         /// <summary>
         /// Moves all the files to another directory and returns a dictionary of the files from the given date
         /// </summary>
-        /// <param name="dirFrom">Directory containing the files to be moved. </param>
-        /// <param name="dirTo">Directory the files are being moved to. </param>
-        /// <param name="date">The date of the files we are looking for. </param>
-        /// <returns>A dictionary separating the admission and scholarship files processed on the given date. </returns>
-        public Dictionary<string, string[]> ArchiveAndGetFiles(string dirFrom, string dirTo, string date)
+        public void ArchiveAndGetFiles()
         {
-            string admissionFolder = Path.Join(dirFrom, "Admission");
-            string dirToAdmission = Path.Join(dirTo, "Admission");
+            string admissionFolder = fileSystem.Path.Join(this.dirInput, "Admission");
+            string dirToAdmission = fileSystem.Path.Join(this.dirArchive, "Admission");
 
-            string scholarshipFolder = Path.Join(dirFrom, "Scholarship");
-            string dirToScholarship = Path.Join(dirTo, "Scholarship");
+            string scholarshipFolder = fileSystem.Path.Join(this.dirInput, "Scholarship");
+            string dirToScholarship = fileSystem.Path.Join(this.dirArchive, "Scholarship");
 
             this.MoveFilesFromDir(admissionFolder, dirToAdmission);
             this.MoveFilesFromDir(scholarshipFolder, dirToScholarship);
+            
 
-            string[] filesFromAdmission = Directory.GetFiles(Path.Join(dirToAdmission, date));
-            string[] filesFromScholarship = Directory.GetFiles(Path.Join(dirToScholarship, date));
+            string[] filesFromAdmission = fileSystem.Directory.GetFiles(fileSystem.Path.Join(dirToAdmission, this.date));
+            string[] filesFromScholarship = fileSystem.Directory.GetFiles(fileSystem.Path.Join(dirToScholarship, this.date));
 
-            Dictionary<string, string[]> filesFromDate = new Dictionary<string, string[]>();
-            filesFromDate.Add("Admission", filesFromAdmission);
-            filesFromDate.Add("Scholarship", filesFromScholarship);
-
-            // return the list of files from the given date
-            return filesFromDate;
+            this.filesFromDate = new()
+            {
+                { "Admission", filesFromAdmission },
+                { "Scholarship", filesFromScholarship }
+            };
         }
 
         /// <summary>
@@ -122,43 +141,34 @@
         /// <param name="dirTo">Directory the files are being moved to. </param>
         public void MoveFilesFromDir(string dirFrom, string dirTo)
         {
-            Directory.CreateDirectory(dirTo);
+            fileSystem.Directory.CreateDirectory(dirTo);
 
-            foreach (string path in Directory.GetDirectories(dirFrom))
+            foreach (string path in fileSystem.Directory.GetDirectories(dirFrom))
             {
-                string dirName = new DirectoryInfo(path).Name;
-                string[] files = Directory.GetFiles(path);
+                string dirName = fileSystem.Path.GetFileName(path);
+                string[] files = fileSystem.Directory.GetFiles(path);
 
-                Directory.CreateDirectory(Path.Join(dirTo, dirName));
+                fileSystem.Directory.CreateDirectory(fileSystem.Path.Join(dirTo, dirName));
 
                 foreach (string file in files)
                 {
-                    string dest = Path.Join(dirTo, dirName, Path.GetFileName(file));
+                    string dest = fileSystem.Path.Join(dirTo, dirName, fileSystem.Path.GetFileName(file));
 
-                    // update the file if it already exists, so we assume none of the files can have the same name
-                    if (File.Exists(dest))
-                    {
-                        File.Delete(dest);
-                    }
-
-                    File.Move(file, dest);
+                    fileSystem.File.Move(file, dest, true);
                 }
-                Directory.Delete(path);
+                fileSystem.Directory.Delete(path);
             }
         }
 
         /// <summary>
-        /// Combines the admission and scholarship files. 
+        /// Combines the admission and scholarship files if they are from the same student. 
         /// </summary>
-        /// <param name="files">A dictionary of the admission and scholarship files to combine. </param>
-        /// <param name="outputDir">The directory the combined files are being outputted to. </param>
-        /// <param name="date">The date the files were processed. </param>
-        public void CombineStudentLetters(Dictionary<string, string[]> files, string outputDir, string date)
+        public void CombineStudentLetters()
         {
 
-            string[] admissionsFiles = files["Admission"];
-            string[] scholarshipFiles = files["Scholarship"];
-            Directory.CreateDirectory(Path.Join(outputDir, date));
+            string[] admissionsFiles = this.filesFromDate["Admission"];
+            string[] scholarshipFiles = this.filesFromDate["Scholarship"];
+            fileSystem.Directory.CreateDirectory(fileSystem.Path.Join(this.dirOutput, this.date));
 
             foreach (string admission in admissionsFiles)
             {
@@ -167,7 +177,7 @@
                 {
                     if (scholarship.Contains(idTxt))
                     {
-                        string resultFile = Path.Join(outputDir, date, "combined-" + idTxt);
+                        string resultFile = fileSystem.Path.Join(this.dirOutput, this.date, "combined-" + idTxt);
                         this.CombineTwoLetters(admission, scholarship, resultFile);
                     }
                 }
@@ -182,44 +192,49 @@
         /// <param name="resultFile">File path for the combined letter. </param>
         public void CombineTwoLetters(string inputFile1, string inputFile2, string resultFile)
         {
-            if (File.Exists(inputFile1) && File.Exists(inputFile2))
+            if (fileSystem.File.Exists(inputFile1) && fileSystem.File.Exists(inputFile2))
             {
-                string file1 = File.ReadAllText(inputFile1);
-                string file2 = File.ReadAllText(inputFile2);
+                string file1 = fileSystem.File.ReadAllText(inputFile1);
+                string file2 = fileSystem.File.ReadAllText(inputFile2);
 
-                File.WriteAllText(resultFile, file1 + file2);
+                fileSystem.File.WriteAllText(resultFile, file1 + file2);
             }
         }
 
         /// <summary>
         /// Generates a text report for the letters combined. 
         /// </summary>
-        /// <param name="dirToReport">The directory containing the combined files. </param>
-        /// <param name="date">The date the combined files were processed. </param>
-        public void GenerateTextReport(string dirToReport, string date)
+        public void GenerateTextReport()
         {
-            string path = Path.Join(dirToReport, date, date + "-report.txt");
-            string year = date.Substring(0, 4);
-            string month = date.Substring(4, 2);
-            string day = date.Substring(6, 2);
+            string path = fileSystem.Path.Join(this.dirOutput, this.date, this.date + "-report.txt");
+            string year = this.date.Substring(0, 4);
+            string month = this.date.Substring(4, 2);
+            string day = this.date.Substring(6, 2);
 
             // assume that report has not been generated yet, so only combined files are in directory
-            string[] files = Directory.GetFiles(Path.Join(dirToReport, date));
+            string[] files = fileSystem.Directory.GetFiles(fileSystem.Path.Join(this.dirOutput, this.date));
+            StringBuilder sb = new();
+            sb.Append(month + "/" + day + "/" + year + " Report\n");
+            sb.Append("-----------------------------\n\n");
+            sb.Append("Number of Combined Letters: " + files.Length + "\n");
 
-            using (StreamWriter writer = new(path))
+            foreach (string file in files)
             {
-                writer.WriteLine(month + "/" + day + "/" + year + " Report");
-                writer.WriteLine("-----------------------------\n");
-                writer.WriteLine("Number of Combined Letters: " + files.Length);
-
-                foreach (string file in files)
-                {
-                    string fileName = Path.GetFileName(file);
-                    string id = fileName.Split("-")[1].Split(".")[0];
-                    writer.WriteLine("\t" + id);
-                }
-
+                string fileName = fileSystem.Path.GetFileName(file);
+                string id = fileName.Split("-")[1].Split(".")[0];
+                sb.Append("\t" + id + "\n");
             }
+
+            fileSystem.File.AppendAllText(path, sb.ToString());
+        }
+
+        /// <summary>
+        ///  Returns the files from date. Used for testing.
+        /// </summary>
+        /// <returns>The dictionary containing only files processed on the specified date. </returns>
+        public Dictionary<string, string[]> GetFilesFromDate()
+        {
+            return filesFromDate;
         }
     }
 }
